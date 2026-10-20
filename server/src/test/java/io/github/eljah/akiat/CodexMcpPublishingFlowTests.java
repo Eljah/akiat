@@ -1,6 +1,9 @@
 package io.github.eljah.akiat;
 
 import io.github.eljah.akiat.domain.StoryState;
+import io.modelcontextprotocol.server.McpSyncServer;
+import java.util.stream.Collectors;
+import java.util.Set;
 import io.github.eljah.akiat.mcp.EditorialTools;
 import io.github.eljah.akiat.service.EditorialService;
 import io.github.eljah.akiat.web.Dtos;
@@ -19,6 +22,15 @@ class CodexMcpPublishingFlowTests {
     @Autowired EditorialTools mcp;
     @Autowired EditorialService editorial;
     @Autowired PublicFeedController feed;
+    @Autowired McpSyncServer mcpServer;
+
+    @Test
+    void mcpServerAdvertisesCodexPublicationTools() {
+        Set<String> names=mcpServer.listTools().stream().map(tool -> tool.name()).collect(Collectors.toSet());
+        for(String name: Set.of("submit_tatar_story", "get_akiat_story", "approve_tatar_text", "start_tatar_narration", "get_tatar_narration_job", "approve_tatar_narration", "confirm_tatar_publication_rights", "publish_tatar_episode")) {
+            assertTrue(names.contains(name), "MCP server does not advertise: "+name+"; found="+names);
+        }
+    }
 
     @Test
     void codexControlsPublicationWithoutJavaTextGeneration() throws Exception {
