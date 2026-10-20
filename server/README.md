@@ -34,6 +34,17 @@ mvn -f server/pom.xml spring-boot:run
 
 При локальном запуске сервер слушает **только 127.0.0.1:8080**. H2 хранит данные в `./data/akiat.mv.db`, файлы озвучки — в `./data/media/` относительно каталога запуска. В `AKIAT_DB_URL` можно задать другое расположение. Файл `/feed.xml` до первого опубликованного выпуска будет пустым — **не отправлять его на модерацию Яндекса, пока нет пилотного MP3 и обложки**.
 
+## Запуск на отдельном сервере через Docker
+
+```bash
+cd server/deploy
+# Создайте .env: AKIAT_ADMIN_PASSWORD, AKIAT_PUBLIC_URL, AKIAT_COVER_URL;
+# дополнительно ключи модели и, при необходимости, MCP-токен.
+docker compose up -d --build
+```
+
+Пример HTTPS reverse proxy в [`deploy/nginx-akiat.conf.example`](deploy/nginx-akiat.conf.example). Важное правило: **для Яндекса доступны только RSS, MP3 и обложка, `/api/**` и `/mcp` закрыты за VPN/IP allowlist**. JAR также публикуется артефактом GitHub Actions (на 30 дней) после успешной сборки.
+
 ## 1. Найти и подготовить референс
 
 ```bash

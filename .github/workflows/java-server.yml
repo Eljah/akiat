@@ -24,5 +24,11 @@ jobs:
           cache-dependency-path: server/pom.xml
       - name: Build and test
         run: mvn --batch-mode -ntp -f server/pom.xml clean verify
+      - name: Save runnable server JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: akiat-server-fatjar
+          path: server/target/akiat-server-0.1.0-SNAPSHOT.jar
+          retention-days: 30
       - name: Python worker static check
         run: python3 -m py_compile worker/silero_api_worker.py
