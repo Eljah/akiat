@@ -1,0 +1,30 @@
+# Voice recordings and potentially private derivatives
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.ogg
+*.opus
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.bin
+asr/
+raw_mp3/
+corpus_22050/
+outputs/
+models/
+checkpoints/
+reviewed_segments.csv
+last_error.txt
+progress.json
+# Python/Colab
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+.env
+.DS_Store
