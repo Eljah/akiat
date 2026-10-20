@@ -9,4 +9,5 @@ import java.util.Optional;
 public interface VoiceTasks extends JpaRepository<VoiceTask, UUID> {
     Optional<VoiceTask> findFirstByStateOrderByCreatedAtAsc(TaskState state);
     boolean existsByStoryIdAndState(UUID id, TaskState state);
+    Optional<VoiceTask> findFirstByStoryIdOrderByCreatedAtDesc(UUID storyId);
 }

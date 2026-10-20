@@ -11,7 +11,7 @@
 * Редакторские состояния `DRAFT` → `LANGUAGE_APPROVED` → `TTS_QUEUED` → `AUDIO_REVIEW` → `READY` → `PUBLISHED`. Одобрение татарского языка, звука и подтверждение прав обязательны. API не позволяет редактировать опубликованную версию или пропустить проверки.
 * HTTP-очередь заданий для отдельного Python-воркера на Silero/Piper/F5. Пример воркера: `../worker/silero_api_worker.py`. Инференс **не** происходит в Java и не требует GPU у сервера.
 * Публичные `/feed.xml` и `/media/{id}.mp3` только для `PUBLISHED`. Секретные ключи, неопубликованный звук и редакционные API недоступны анонимно.
-* MCP Streamable HTTP на `/mcp`: перечисление референсов и черновиков, поиск кандидатов, запуск генерации черновика; **без инструмента публикации**.
+* MCP Streamable HTTP на `/mcp`: **основной Codex-first маршрут**. Codex исследует русскую литературу, создаёт оригинальную татарскую сказку, затем передаёт полный текст инструментом `submit_tatar_story`. Через MCP доступны редакционное подтверждение, очередь озвучки, статус задания и выпуск в RSS после проверок. Подробности: [Codex → MCP → RSS](../docs/CODEX_MCP_PUBLISHING_RU.md). Старая генерация внутри Java — необязательный legacy-механизм, выключенный по умолчанию.
 
 ## Запуск на Windows / Linux
 
@@ -125,9 +125,11 @@ Endpoint: `http://127.0.0.1:8080/mcp`, транспорт Streamable HTTP чер
 
 * `list_emotional_references` — список ориентиров;
 * `search_fairy_tale_references` — поиск кандидатов;
-* `create_akiat_draft` — создать черновик по рецензированному эмоциональному профилю;
+* `submit_tatar_story` — принять полный оригинальный татарский текст, подготовленный Codex;
 * `list_akiat_drafts` — список на редактуру;
-* `get_akiat_story` — текст и статус.
+* `get_akiat_story` — текст и статус;
+* `approve_tatar_text`, `start_tatar_narration`, `get_tatar_narration_job` — редактура и очередь TTS;
+* `approve_tatar_narration`, `confirm_tatar_publication_rights`, `publish_tatar_episode` — контролируемый выпуск в RSS.
 
 Для доступа к MCP используйте `Authorization: Bearer <AKIAT_MCP_TOKEN>` (задайте токен в переменной окружения). Локальный Codex CLI можно настроить (синтаксис зависит от версии):
 

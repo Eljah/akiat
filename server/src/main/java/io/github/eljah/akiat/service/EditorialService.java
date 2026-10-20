@@ -23,6 +23,47 @@ public class EditorialService {
     @Transactional(readOnly=true)
     public Dtos.StoryView get(UUID id) { return Dtos.StoryView.from(require(id)); }
 
+    /**
+     * Accept a Codex-written Tatar tale. Stable clientId guarantees retries do not produce
+     * duplicate podcast episodes; using the same key with different text is an error.
+     */
+    @Transactional
+    public Dtos.StoryView submitFromCodex(Dtos.CodexSubmission input) {
+        Objects.requireNonNull(input, "submission is required");
+        String key=Objects.requireNonNull(input.clientId(), "clientId is required").strip();
+        String title=Objects.requireNonNull(input.title(), "title is required").strip();
+        String body=Objects.requireNonNull(input.tatText(), "tatText is required").strip();
+        if (key.length()<3 || key.length()>180 || title.length()<2 || title.length()>350
+                || body.length()<100 || body.length()>200000) {
+            throw new IllegalArgumentException("Invalid clientId/title/tatText lengths");
+        }
+        if (input.audienceAge()!=null && (input.audienceAge()<2 || input.audienceAge()>17)) {
+            throw new IllegalArgumentException("audienceAge must be between 2 and 17");
+        }
+        Optional<Story> prior=stories.findByExternalId(key);
+        if (prior.isPresent()) {
+            Story existing=prior.get();
+            if (!Objects.equals(existing.title,title) || !Objects.equals(existing.tatText,body)) {
+                throw new IllegalStateException("clientId already exists with different title/text");
+            }
+            return Dtos.StoryView.from(existing);
+        }
+        Story story=new Story(null,title,
+            input.genre()==null?"modern_original":input.genre(),
+            input.outline(),body);
+        story.externalId=key;
+        story.emotionalFingerprint=input.emotionalProfile();
+        story.referenceSummary=input.referenceNotes();
+        story.audienceAge=input.audienceAge()==null?5:input.audienceAge();
+        return Dtos.StoryView.from(stories.save(story));
+    }
+
+    @Transactional(readOnly=true)
+    public Dtos.TaskView getTtsTask(UUID id) {
+        return Dtos.TaskView.from(tasks.findById(id)
+            .orElseThrow(()->new NotFoundException("TTS task not found: "+id)));
+    }
+
     @Transactional
     public Dtos.StoryView edit(UUID id, Dtos.TextChange input) {
         Story s=require(id);
@@ -35,13 +76,15 @@ public class EditorialService {
         s.title=input.title().trim(); s.tatText=input.tatText().trim();
         s.outline=input.outline(); s.genre=input.genre();
         s.state=StoryState.DRAFT;
-        s.languageApproved=false; s.audioApproved=false; s.updatedAt=Instant.now();
+        s.languageApproved=false; s.audioApproved=false; s.rightsCleared=false;
+        s.updatedAt=Instant.now();
         return Dtos.StoryView.from(stories.save(s));
     }
 
     @Transactional
     public Dtos.StoryView approveLanguage(UUID id) {
         Story s=require(id);
+        if (s.state==StoryState.LANGUAGE_APPROVED) return Dtos.StoryView.from(s);
         if (s.state!=StoryState.DRAFT) throw new IllegalStateException("Expected DRAFT");
         if (s.tatText==null || s.tatText.length()<100) throw new IllegalStateException("Missing story text");
         s.languageApproved=true; s.state=StoryState.LANGUAGE_APPROVED; s.updatedAt=Instant.now();
@@ -51,6 +94,11 @@ public class EditorialService {
     @Transactional
     public Dtos.TaskView queueTts(UUID id) {
         Story s=require(id);
+        if (s.state==StoryState.TTS_QUEUED) {
+            return tasks.findFirstByStoryIdOrderByCreatedAtDesc(id)
+                .map(Dtos.TaskView::from)
+                .orElseThrow(()->new IllegalStateException("Story is queued but no task exists"));
+        }
         if (!s.languageApproved || s.state!=StoryState.LANGUAGE_APPROVED) {
             throw new IllegalStateException("Tatar language review required before TTS");
         }
@@ -101,6 +149,7 @@ public class EditorialService {
     @Transactional
     public Dtos.StoryView approveAudio(UUID id) {
         Story s=require(id);
+        if (s.state==StoryState.READY) return Dtos.StoryView.from(s);
         if(s.state!=StoryState.AUDIO_REVIEW || s.audioFile==null) {
             throw new IllegalStateException("Audio must be uploaded before audio review");
         }
@@ -111,7 +160,7 @@ public class EditorialService {
     @Transactional
     public Dtos.StoryView confirmRights(UUID id) {
         Story s=require(id);
-        if(s.state==StoryState.PUBLISHED) throw new IllegalStateException("Already published");
+        if(s.state==StoryState.PUBLISHED) return Dtos.StoryView.from(s);
         s.rightsCleared=true; s.updatedAt=Instant.now();
         return Dtos.StoryView.from(stories.save(s));
     }
@@ -119,6 +168,7 @@ public class EditorialService {
     @Transactional
     public Dtos.StoryView publish(UUID id) {
         Story s=require(id);
+        if (s.state==StoryState.PUBLISHED) return Dtos.StoryView.from(s);
         if(s.state!=StoryState.READY || !s.languageApproved || !s.audioApproved
                 || !s.rightsCleared || s.audioFile==null || s.audioLength==null || s.audioLength<=0) {
             throw new IllegalStateException("Publication requires language, audio and rights review");

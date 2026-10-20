@@ -29,6 +29,11 @@ public final class Dtos {
                 s.audioLength, s.durationSeconds, s.createdAt, s.publishedAt);
         }
     }
+    /** Complete original Tatar literary work prepared by Codex, never generated on the Java server. */
+    public record CodexSubmission(
+        @NotBlank String clientId, @NotBlank String title, @NotBlank String tatText,
+        String emotionalProfile, String referenceNotes, String outline, String genre,
+        @Min(2) @Max(17) Integer audienceAge) {}
     public record TextChange(@NotBlank String title, @NotBlank String tatText, String outline, String genre) {}
     public record TaskView(UUID id, UUID storyId, String title, String text,
                            TaskState state, String claimedBy) {

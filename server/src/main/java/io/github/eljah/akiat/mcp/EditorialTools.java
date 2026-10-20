@@ -6,17 +6,16 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.stereotype.Component;
 import java.util.UUID;
 
-/** MCP can inspect, search and draft. Publishing requires deliberate REST editorial action. */
+/** Codex writes literary text; MCP receives it, stages TTS jobs and controls guarded RSS publication. */
 @Component
 public class EditorialTools {
     private final ReferenceService refs;
     private final EditorialService stories;
-    private final StoryGenerator generator;
     private final ReferenceDiscovery search;
 
     public EditorialTools(ReferenceService refs, EditorialService stories,
-                          StoryGenerator generator, ReferenceDiscovery search) {
-        this.refs=refs;this.stories=stories;this.generator=generator;this.search=search;
+                          ReferenceDiscovery search) {
+        this.refs=refs;this.stories=stories;this.search=search;
     }
 
     @Tool(description="List verified and unverified emotional references available to the Akiat literary editorial team")
@@ -31,6 +30,43 @@ public class EditorialTools {
     @Tool(description="Search publicly indexed descriptions of Russian authored children's fairy tales; returns candidates only, not copyrighted full texts")
     public String search_fairy_tale_references(String searchQuery) { return search.search(searchQuery).toString(); }
 
-    @Tool(description="Generate one independent Tatar story DRAFT from a previously human-reviewed abstract emotional profile; NEVER publishes")
-    public String create_akiat_draft(String referenceId) { return generator.generate(UUID.fromString(referenceId)).toString(); }
+    @Tool(description="Save a COMPLETE, original Tatar fairy tale ALREADY written by Codex. Does not call any LLM. Returns a DRAFT; uses a stable clientId to prevent duplicate episodes.")
+    public io.github.eljah.akiat.web.Dtos.StoryView submit_tatar_story(
+            io.github.eljah.akiat.web.Dtos.CodexSubmission input) {
+        return stories.submitFromCodex(input);
+    }
+
+    @Tool(description="Approve the literary Tatar text after actual editorial review. Only DRAFT stories; required before generating audio.")
+    public io.github.eljah.akiat.web.Dtos.StoryView approve_tatar_text(String storyId) {
+        return stories.approveLanguage(UUID.fromString(storyId));
+    }
+
+    @Tool(description="Queue a TTS production task for an editorially approved Tatar fairy tale. The asynchronous Python worker picks it up and uploads the MP3. Safe to retry.")
+    public io.github.eljah.akiat.web.Dtos.TaskView start_tatar_narration(String storyId) {
+        return stories.queueTts(UUID.fromString(storyId));
+    }
+
+    @Tool(description="Get the status of one asynchronous TTS narration job. Check this before audio approval.")
+    public io.github.eljah.akiat.web.Dtos.TaskView get_tatar_narration_job(String taskId) {
+        return stories.getTtsTask(UUID.fromString(taskId));
+    }
+
+    @Tool(description="Approve narration only after an authorized editor actually listened to the stored audio and checked pronunciation, loudness, quality and age suitability.")
+    public io.github.eljah.akiat.web.Dtos.StoryView approve_tatar_narration(String storyId) {
+        return stories.approveAudio(UUID.fromString(storyId));
+    }
+
+    @Tool(description="Record explicit editor confirmation that story text, narrator voice/model and sound recordings have the necessary publication rights. Do not call without verification.")
+    public io.github.eljah.akiat.web.Dtos.StoryView confirm_tatar_publication_rights(String storyId) {
+        return stories.confirmRights(UUID.fromString(storyId));
+    }
+
+    @Tool(description="FINAL PUBLIC RELEASE: add a READY, rights-cleared episode to the public RSS feed. Only call after explicit approval by the human user. confirmation MUST be PUBLISH:<storyId>.")
+    public io.github.eljah.akiat.web.Dtos.StoryView publish_tatar_episode(String storyId, String confirmation) {
+        UUID id=UUID.fromString(storyId);
+        if (!("PUBLISH:"+id).equals(confirmation)) {
+            throw new IllegalArgumentException("Missing exact publication confirmation: PUBLISH:<storyId>");
+        }
+        return stories.publish(id);
+    }
 }

@@ -16,6 +16,13 @@ public class Story {
     public String title;
     @Column(length=150)
     public String genre;
+    @Column(name="external_id", unique=true, length=180)
+    public String externalId;
+    @Lob
+    public String emotionalFingerprint;
+    @Lob
+    public String referenceSummary;
+    public Integer audienceAge;
     @Lob
     public String outline;
     @Lob
