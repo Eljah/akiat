@@ -1,0 +1,57 @@
+server:
+  port: ${AKIAT_PORT:8080}
+  address: ${AKIAT_BIND:127.0.0.1}
+  forward-headers-strategy: framework
+  tomcat:
+    max-http-request-part-size: 80MB
+spring:
+  application:
+    name: akiat-server
+  datasource:
+    url: ${AKIAT_DB_URL:jdbc:h2:file:./data/akiat;AUTO_SERVER=TRUE}
+    username: ${AKIAT_DB_USER:sa}
+    password: ${AKIAT_DB_PASS:}
+  jpa:
+    hibernate:
+      ddl-auto: update # development only; PostgreSQL + Flyway for production
+    open-in-view: false
+  servlet:
+    multipart:
+      max-file-size: 80MB
+      max-request-size: 85MB
+  ai:
+    mcp:
+      server:
+        name: akiat-editorial
+        version: 0.1.0
+        protocol: STREAMABLE
+        type: SYNC
+        streamable-http:
+          mcp-endpoint: /mcp
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+akiat:
+  admin:
+    username: ${AKIAT_ADMIN_USER:admin}
+    password: ${AKIAT_ADMIN_PASSWORD:}
+    mcp-token: ${AKIAT_MCP_TOKEN:}
+  media-directory: ${AKIAT_MEDIA_DIR:./data/media}
+  feed:
+    base-url: ${AKIAT_PUBLIC_URL:http://localhost:8080}
+    title: ${AKIAT_FEED_TITLE:Әкият — хәзерге заман татар әкиятләре}
+    description: ${AKIAT_FEED_DESCRIPTION:Балалар өчен яңа татар әкиятләре}
+    author: ${AKIAT_FEED_AUTHOR:Akiat}
+    image-url: ${AKIAT_COVER_URL:}
+  llm:
+    base-url: ${AKIAT_LLM_BASE_URL:https://api.openai.com/v1}
+    model: ${AKIAT_LLM_MODEL:}
+    api-key: ${AKIAT_LLM_API_KEY:}
+  search:
+    brave-api-key: ${AKIAT_BRAVE_API_KEY:}
+  generation:
+    enabled: ${AKIAT_AUTOGENERATE:false}
+    cron: ${AKIAT_GENERATION_CRON:0 0 10 * * MON,THU}
+    time-zone: ${AKIAT_GENERATION_TZ:Europe/Moscow}

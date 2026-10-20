@@ -28,3 +28,13 @@ __pycache__/
 venv/
 .env
 .DS_Store
+
+# Akiat Java runtime and credentials
+/server/target/
+/server/data/
+/data/
+*.mv.db
+*.trace.db
+.env
+*.pem
+*.key

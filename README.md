@@ -4,6 +4,20 @@
 
 **Состояние:** прототип. Сценарии озвучки и Colab-блокноты подготовлены, но успешное end-to-end распознавание всех записей и обучение собственного голоса пока **не подтверждены**. MP3, готовые голоса и веса моделей в репозиторий **не входят**.
 
+## Java сервер, API, MCP, расписание и RSS
+
+**Теперь добавлен Java-модуль [`server/`](server/README.md)** (Spring Boot 4.1.1, Maven, Java 17+, Spring AI MCP, H2/JPA). Он отвечает за регистрацию литературных эмоциональных референсов, поиск кандидатов, регулярную генерацию только *черновиков* татарских сказок, проверку текстов, очередь TTS, контроль прав и выпуск RSS для Яндекс Музыки. Python-воркер находится в [`worker/silero_api_worker.py`](worker/silero_api_worker.py).
+
+По умолчанию сетевые административные интерфейсы доступны только с `127.0.0.1`; требуется задать `AKIAT_ADMIN_PASSWORD`. Для автоматического генератора нужны отдельные ключи LLM, запуск автоматической генерации по расписанию по умолчанию выключен. Публикация невозможна без подтверждения языковой проверки, аудио и прав. MCP Streamable HTTP — `/mcp`, c отдельным токеном через `AKIAT_MCP_TOKEN`. Подробности: [server/README.md](server/README.md).
+
+```bash
+export AKIAT_ADMIN_PASSWORD='replace-with-strong-password'
+mvn -f server/pom.xml clean verify
+mvn -f server/pom.xml spring-boot:run
+```
+
+RSS: `http://127.0.0.1:8080/feed.xml` (для Яндекса требуется публичный HTTPS и первый одобренный выпуск). См. [правила размещения Яндекс Музыки](https://yandex.com/support/music-artists/ru/podcast-authors/audio-placement): первоначальная заявка ручная, затем обновления подкастов принимаются через RSS. Приём именно авторских аудиосказок нужно подтвердить модерацией.
+
 ## Запуск: Whisper в Google Colab
 
 Актуальная версия: **[notebooks/00_START_HERE_Whisper_Tatar_v4.ipynb](notebooks/00_START_HERE_Whisper_Tatar_v4.ipynb)** — [открыть в Colab](https://colab.research.google.com/github/Eljah/akiat/blob/main/notebooks/00_START_HERE_Whisper_Tatar_v4.ipynb).
