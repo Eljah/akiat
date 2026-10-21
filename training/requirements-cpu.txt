@@ -1,0 +1,7 @@
+torch==2.5.1
+transformers==4.57.6
+accelerate>=1.0,<2
+soundfile>=0.12
+librosa>=0.10
+imageio-ffmpeg==0.6.0
+hf-xet>=1.1,<2

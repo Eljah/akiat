@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Static validation of source .ipynb and Python scripts, without installing or running models."""
 from __future__ import annotations
-import ast, json, pathlib, sys
+import ast, json, os, pathlib, sys
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 issues=[]
 notebooks=list(ROOT.glob('notebooks/*.ipynb'))
@@ -26,12 +26,16 @@ for path in notebooks:
                     issues.append(f'{path}: syntax cell {i}: {exc}')
     except (ValueError,UnicodeError) as exc:
         issues.append(f'{path}: {exc}')
-for path in ROOT.rglob('*.py'):
+modules=[]
+for directory, subdirs, filenames in os.walk(ROOT):
+    subdirs[:] = [name for name in subdirs if not name.startswith('.') and name not in {'venv', '__pycache__', 'node_modules'}]
+    modules.extend(pathlib.Path(directory)/name for name in filenames if name.endswith('.py'))
+for path in modules:
     if 'tools/history/' in path.relative_to(ROOT).as_posix():
         continue
     try: ast.parse(path.read_text(encoding='utf-8'))
     except SyntaxError as exc: issues.append(f'{path}: {exc}')
-print(f'Notebooks: {len(notebooks)}; Python modules: {len(list(ROOT.rglob("*.py")))}')
+print(f'Notebooks: {len(notebooks)}; Python modules: {len(modules)}')
 if issues:
     print('\n'.join(issues),file=sys.stderr)
     sys.exit(1)

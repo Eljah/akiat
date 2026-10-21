@@ -1,0 +1,11 @@
+{
+  "piper_repository": "https://github.com/rhasspy/piper",
+  "piper_commit": "73c04d81d5590ecc46e522de3601ce7fb29fc2be",
+  "voice_repository": "https://github.com/IS2AI/TatarTTS",
+  "voice": "male",
+  "checkpoint_drive_id": "163itCkfV8u3tp75VbSsS6HsSaCKLhKbO",
+  "config_drive_id": "14SfzXd5AupN25eq42WD-Dypt_wbsdEur",
+  "torch_wheel": "torch-1.13.1+cpu-cp310-cp310-linux_x86_64.whl",
+  "torch_sha256": "11692523b87c45b79ddfb5148b12a713d85235d399915490d94e079521f7e014",
+  "checkpoint_sha256_note": "Computed after download and successful strict load; see outputs/night_pipeline/piper_verified.json. The publisher did not provide a checksum."
+}

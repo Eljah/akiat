@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "poll_seconds": 30,
+  "minimum_free_gib": 5,
+  "experimental_unreviewed": true,
+  "exclude_sources_containing": ["подкаст"],
+  "minimum_clips": 30,
+  "epochs": 40,
+  "wsl_distribution": "Ubuntu",
+  "checkpoint": "checkpoints/tatartts_male.ckpt"
+}
