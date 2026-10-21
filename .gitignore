@@ -30,6 +30,7 @@ __pycache__/
 venv/
 .env
 .DS_Store
+/desktop/build/
 
 # Akiat Java runtime and credentials
 /server/target/
