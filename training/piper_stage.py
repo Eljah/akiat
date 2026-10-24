@@ -29,7 +29,7 @@ def main():
     import pytorch_lightning as pl
     from piper_train.vits.lightning import VitsModel
     from piper_phonemize import phonemize_espeak, phoneme_ids_espeak, get_espeak_map
-    from night_common import read_json, write_json, sha256, validate_phoneme_map
+    from night_common import read_json, write_json, sha256, validate_phoneme_map, latest_last_checkpoint
     settings = read_json(ROOT / 'training' / 'night_pipeline.json')
     checkpoint = ROOT / settings['checkpoint']
     original_config = read_json(ROOT / 'checkpoints' / 'tatartts_male.config.json')
@@ -49,7 +49,9 @@ def main():
         write_json(STATE / 'preprocess_ready.json', {'compatible':True})
         return
     if args.stage == 'export':
-        source = STATE / 'train' / 'checkpoints' / 'last.ckpt'
+        source = latest_last_checkpoint(STATE / 'train' / 'checkpoints')
+        if source is None:
+            raise RuntimeError('No saved checkpoint to export')
         sys.argv = ['piper_train.export_onnx', str(source), str(STATE / 'custom_tatar_voice.onnx')]
         runpy.run_module('piper_train.export_onnx', run_name='__main__')
         import shutil
@@ -108,12 +110,20 @@ def main():
             import shutil
             if shutil.disk_usage(ROOT).free < settings['minimum_free_gib'] * 1024**3:
                 raise RuntimeError('Disk reserve reached before training batch')
+        def on_train_epoch_start(self, trainer, pl_module):
+            print(f'TRAIN epoch={trainer.current_epoch + 1} started; global_step={trainer.global_step}', flush=True)
+        def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+            if batch_idx < 3 or (batch_idx + 1) % 50 == 0:
+                import time
+                print(f'TRAIN {time.strftime("%Y-%m-%dT%H:%M:%S%z")} '
+                      f'epoch={trainer.current_epoch + 1} batch={batch_idx + 1} '
+                      f'global_step={trainer.global_step}', flush=True)
     trainer = pl.Trainer(accelerator='cpu', devices=1, precision=32,
         max_epochs=settings['epochs'], default_root_dir=out, callbacks=[callback, DiskReserve()],
         logger=False if smoke else True, num_sanity_val_steps=0, enable_progress_bar=False,
         fast_dev_run=1 if smoke else False, log_every_n_steps=10)
-    resume = out / 'checkpoints' / 'last.ckpt'
-    trainer.fit(model, ckpt_path=str(resume) if resume.exists() and not smoke else None)
+    resume = latest_last_checkpoint(out / 'checkpoints')
+    trainer.fit(model, ckpt_path=str(resume) if resume is not None and not smoke else None)
     if smoke:
         if trainer.global_step < 2 or not all(torch.isfinite(p).all().item() for p in model.parameters()):
             raise RuntimeError('Training smoke test did not produce finite updated GAN weights')

@@ -1,9 +1,23 @@
 import unittest
-from night_common import validate_parts, validate_phoneme_map
+import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from night_common import validate_parts, validate_phoneme_map, latest_last_checkpoint
 from prepare_experimental import boundaries
 
 
 class CompletionTests(unittest.TestCase):
+    def test_resume_after_migration_uses_versioned_last(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertIsNone(latest_last_checkpoint(root))
+            for name, stamp in [('last.ckpt', 100), ('last-v1.ckpt', 200),
+                                ('last-backup.ckpt', 300), ('last-v2.ckpt.partial', 400)]:
+                path = root / name
+                path.write_bytes(b'test')
+                os.utime(path, (stamp, stamp))
+            self.assertEqual(latest_last_checkpoint(root).name, 'last-v1.ckpt')
+
     def test_phoneme_map_extensions_preserve_checkpoint_ids(self):
         original = {'a':[1], 'b':[2]}
         self.assertEqual(validate_phoneme_map(original, {**original, 'c':[3]}, 4), ['c'])

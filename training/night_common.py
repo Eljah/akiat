@@ -10,6 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT / 'outputs' / 'night_pipeline'
 
 
+def latest_last_checkpoint(directory):
+    """Lightning may save last-v1.ckpt after restoring into a different folder."""
+    paths = [p for p in Path(directory).glob('last*.ckpt')
+             if re.fullmatch(r'last(?:-v\d+)?\.ckpt', p.name) and p.is_file()]
+    return max(paths, key=lambda p: p.stat().st_mtime_ns) if paths else None
+
+
 def validate_phoneme_map(original, actual, num_symbols):
     """Allow appended symbols, but never remap an existing checkpoint symbol."""
     for phoneme, ids in original.items():

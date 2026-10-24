@@ -15,8 +15,16 @@ public class ReviewTests {
         try{ReviewData.setStart(w,0,1.5,2);throw new AssertionError("crossing accepted");}catch(IllegalArgumentException expected){}
         List<Object> times=ReviewData.wordMaps(w);List<ReviewData.Word> restored=ReviewData.estimate("Әни килә.",sound);ReviewData.restoreTimes(restored,times,2,null);check(restored.get(1).start==1.2,"restore time");
         List<ReviewData.Word> different=ReviewData.estimate("Бала килә.",sound);try{ReviewData.restoreTimes(different,times,2,"imported");throw new AssertionError("mismatch accepted");}catch(IllegalArgumentException expected){}
+        ReviewData.Item flagsItem=new ReviewData.Item();flagsItem.original="A Wrong B";flagsItem.raw=Json.object(Json.parse("{\"tokens\":[{\"word\":\"A\",\"flags\":[\"CHECK\"]},{\"word\":\"Wrong\",\"flags\":[\"UNKNOWN\"]},{\"word\":\"B\",\"flags\":[\"CHECK\"]}]}"));
+        List<ReviewData.Word> changed=ReviewData.estimate("A Fixed B",sound);ReviewData.applyFlags(changed,flagsItem,"A Fixed B");
+        check(changed.get(0).flags.equals("CHECK")&&changed.get(2).flags.equals("CHECK"),"unmodified flagged words retain marks after correction elsewhere");
+        check(changed.get(1).edited&&changed.get(1).flags.isEmpty()&&!changed.get(2).edited,"changed word distinguished without stale flags");
+        changed=ReviewData.estimate("Wrong B",sound);ReviewData.applyFlags(changed,flagsItem,"Wrong B");check(changed.get(0).flags.equals("UNKNOWN"),"flags survive deletion before word");
         Path report=Paths.get(args[0]);List<ReviewData.Item> items=ReviewData.readReport(report);check(items.size()==609,"real report count");ReviewData.Item item=items.get(0);String original=Files.readString(item.json);
         ReviewData.Sound wav=ReviewData.readSound(item.audio);check(wav.duration>0&&wav.bytes.length>0,"WAV read");
+        byte[] slow=ReviewData.playbackBytes(wav,.5);check(slow.length==wav.bytes.length*2,"half speed doubles duration");
+        int frameSize=wav.format.getFrameSize();for(int i=0;i<wav.bytes.length/frameSize;i+=101)for(int b=0;b<frameSize;b++)check(slow[i*2*frameSize+b]==wav.bytes[i*frameSize+b],"half speed retains original samples at exact positions");
+        check(ReviewData.playbackBytes(wav,1)==wav.bytes,"normal speed uses unchanged original");
         List<ReviewData.Word> words=ReviewData.estimate(item.original,wav);ReviewData.applyFlags(words,item,item.original);check(!words.isEmpty(),"words from real clip");
         Path test=Paths.get(args[1]);Files.createDirectories(test);ReviewData.save(test,item,item.original,words,"reviewed");
         Map<String,Object> saved=Json.object(Json.parse(Files.readString(test.resolve("desktop_edits").resolve(item.uid+".json"),StandardCharsets.UTF_8)));
@@ -38,6 +46,16 @@ public class ReviewTests {
         ReviewData.save(test,item,item.original,words,"draft",wav,0,wav.duration);
         Map<String,Object> reset=Json.object(Json.parse(Files.readString(test.resolve("desktop_edits").resolve(item.uid+".json"),StandardCharsets.UTF_8)));
         check(reset.get("audio").equals(item.audio.toString()),"reset trim references original");
+        List<ReviewData.Word> anchored=ReviewData.estimate("A B C",wav);
+        for(int i=0;i<3;i++){anchored.get(i).start=i*2;anchored.get(i).end=i*2+1;anchored.get(i).kind="manual";}
+        String anchoredBefore=Json.write(ReviewData.wordMaps(anchored));
+        ReviewData.save(test,item,"A B C",anchored,"draft",wav,1.5,3.5);
+        Map<String,Object> fixed=Json.object(Json.parse(Files.readString(test.resolve("desktop_edits").resolve(item.uid+".json"))));
+        check(anchoredBefore.equals(Json.write(fixed.get("words"))),"trim save preserves original word times");
+        check(Json.array(fixed.get("words_for_saved_audio")).size()==1,"outside words omitted from cropped timing list");
+        check(Boolean.TRUE.equals(fixed.get("text_requires_review")),"cropped speech requires text review");
+        List<ReviewData.Word> remaining=ReviewData.reconcile("B",wav,anchored);
+        check(remaining.size()==1&&remaining.get(0).start==2&&remaining.get(0).end==3&&remaining.get(0).kind.equals("manual"),"deleting edge words preserves remaining timestamps");
         check(Files.readString(item.json).equals(original),"original unchanged");
         System.out.println("PASS: JSON, word timings, 609 pairs, save/reload, exact PCM trimming, source offsets, adjusted timestamps, invalid cuts and reset");
     }

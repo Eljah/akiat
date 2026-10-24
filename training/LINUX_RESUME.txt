@@ -1,0 +1,40 @@
+Resume an existing CPU Piper run on another Linux machine
+
+Copy training/, .tools/piper/src/python/, the Python environment, checkpoints/,
+outputs/night_pipeline/{corpus,processed,train/checkpoints,train/lightning_logs}.
+Keep the original source copies until the destination has been verified.
+
+An ordinary venv is not portable by itself. Install a compatible Python 3.10,
+recreate .tools/piper-venv, and check all native imports and a CPU backward pass.
+For Ubuntu 16.04/glibc 2.23, the tested portable Python is python-build-standalone
+3.10.18, release 20250918, x86_64-unknown-linux-gnu-install_only.
+ONNX Runtime 1.16.3 supports this host; 1.17.3 requires glibc 2.27.
+
+Replace the old repository prefix in processed/dataset.jsonl audio_path,
+audio_norm_path and audio_spec_path, and in the environment's editable .pth file.
+Verify each referenced file exists and compare source/destination SHA256 hashes
+before rewriting metadata. Preserve optimizer and loop state in last.ckpt.
+
+From the repository directory, start a detached run:
+  nohup .tools/piper-venv/bin/python -u training/run_linux_pipeline.py > outputs/night_pipeline/linux_pipeline.log 2>&1 < /dev/null &
+
+Status: outputs/night_pipeline/linux_status.json (updated every 15 seconds).
+Logs: outputs/night_pipeline/linux_train.log and linux_export.log.
+Detailed progress: train/lightning_logs/version_*/events* (TensorBoard).
+The wrapper has an exclusive lock and skips stages with completion markers.
+It resumes last.ckpt, retains the configured total of 40 epochs, and then exports
+custom_tatar_voice.onnx plus its JSON config. It does not auto-start after reboot;
+the same command resumes from the latest saved epoch after a reboot.
+
+CPU limits are applied by piper_stage.py: one logical CPU, one compute thread,
+niceness 10, address-space cap 8 GiB, and a free-disk reserve from night_pipeline.json.
+There is no need to rerun MP3 recognition or corpus preprocessing for a copied run.
+
+Current migration (2026-10-22): ilya@192.168.1.118, /home/ilya/akiat.
+Resume point: 16 completed epochs, Lightning global_step 19456.
+The source Windows watcher is disabled in training/night_pipeline.json to avoid
+an accidental duplicate run. This setting is not used by the Linux wrapper.
+SSH key on the Windows workstation: .tools/remote-118/id_ed25519 (gitignored).
+Restart on the server with: bash ~/akiat/training/start_linux_pipeline.sh
+The server's wall clock differed from the workstation during migration; use
+checkpoint epoch/step and elapsed durations when comparing the two hosts' logs.

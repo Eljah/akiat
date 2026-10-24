@@ -11,12 +11,12 @@ import java.util.regex.*;
 final class ReviewData {
     static final Pattern WORD=Pattern.compile("\\p{L}+(?:[-’']\\p{L}+)*");
     static final class Word {
-        String text,kind="approximate",flags=""; int from,to; double start,end;
+        String text,kind="approximate",flags=""; boolean edited; int from,to; double start,end;
         Word(String text,int from,int to){this.text=text;this.from=from;this.to=to;}
     }
     static final class Item {
-        Map<String,Object> raw;Path json,audio;String uid,source,original;double sourceStart;int issues;
-        public String toString(){return uid+"  ·  "+issues+" пометок";}
+        Map<String,Object> raw;Path json,audio;String uid,source,original,status="new";double sourceStart;int issues;
+        public String toString(){return (status.equals("excluded")?"[ИСКЛЮЧЁН] ":status.equals("reviewed")?"[ПРОВЕРЕН] ":status.equals("draft")?"[ЧЕРНОВИК] ":"")+uid+"  ·  "+issues+" пометок";}
     }
     static final class Sound {
         AudioFormat format;byte[] bytes;double duration;float[] peaks;
@@ -30,6 +30,8 @@ final class ReviewData {
                 if(!i.uid.matches("[A-Za-z0-9_-]+"))throw new IOException("Invalid clip ID");
                 i.audio=report.resolve((String)r.get("audio_relative")).normalize();
                 if(!Files.isRegularFile(i.audio))throw new IOException("WAV не найден: "+i.audio);
+                Path saved=report.resolve("desktop_edits").resolve(i.uid+".json");
+                if(Files.isRegularFile(saved)){Map<String,Object> edit=Json.object(Json.parse(Files.readString(saved,StandardCharsets.UTF_8)));if(i.original.equals(edit.get("original_text")))i.status=String.valueOf(edit.getOrDefault("status","draft"));}
                 items.add(i);
             }
         }
@@ -79,9 +81,18 @@ final class ReviewData {
         }return words;
     }
     static void applyFlags(List<Word> words,Item item,String text){
-        if(!text.equals(item.original))return;
-        for(Object o:Json.array(item.raw.get("tokens"))){Map<String,Object> t=Json.object(o);int index=((Number)t.get("index")).intValue()-1;
-            if(index>=0&&index<words.size()&&words.get(index).text.equals(t.get("word")))words.get(index).flags=String.join(", ",Json.array(t.get("flags")).stream().map(Object::toString).toArray(String[]::new));}
+        List<Object> tokens=Json.array(item.raw.get("tokens"));int n=tokens.size(),m=words.size();int[][] matches=new int[n+1][m+1];
+        for(Word w:words){w.flags="";w.edited=true;}
+        for(int i=n-1;i>=0;i--)for(int j=m-1;j>=0;j--)matches[i][j]=words.get(j).text.equals(Json.object(tokens.get(i)).get("word"))?1+matches[i+1][j+1]:Math.max(matches[i+1][j],matches[i][j+1]);
+        for(int i=0,j=0;i<n&&j<m;){Map<String,Object> t=Json.object(tokens.get(i));Word w=words.get(j);if(w.text.equals(t.get("word"))){w.edited=false;w.flags=String.join(", ",Json.array(t.get("flags")).stream().map(Object::toString).toArray(String[]::new));i++;j++;}else if(matches[i+1][j]>=matches[i][j+1])i++;else j++;}
+    }
+    static byte[] playbackBytes(Sound sound,double speed){
+        if(speed!=.5&&speed!=.75&&speed!=1)throw new IllegalArgumentException("Unsupported playback speed");
+        if(speed==1)return sound.bytes;
+        int frameSize=sound.format.getFrameSize(),frames=sound.bytes.length/frameSize,count=(int)Math.ceil(frames/speed);byte[] output=new byte[Math.multiplyExact(count,frameSize)];
+        for(int j=0;j<count;j++){double position=j*speed;int a=Math.min(frames-1,(int)position),b=Math.min(frames-1,a+1);double fraction=position-a;
+            for(int channel=0;channel<frameSize;channel+=2){int ia=a*frameSize+channel,ib=b*frameSize+channel;short va=(short)((sound.bytes[ia]&255)|(sound.bytes[ia+1]<<8)),vb=(short)((sound.bytes[ib]&255)|(sound.bytes[ib+1]<<8));int sample=(int)Math.round(va+(vb-va)*fraction),out=j*frameSize+channel;output[out]=(byte)sample;output[out+1]=(byte)(sample>>8);}}
+        return output;
     }
     static void setStart(List<Word> words,int index,double value,double duration){
         if(!Double.isFinite(value)||value<0||value>=duration)throw new IllegalArgumentException("Время за границами WAV");
@@ -91,6 +102,14 @@ final class ReviewData {
         if(index>0&&words.get(index-1).end>value){words.get(index-1).end=value;words.get(index-1).kind="manual";}
     }
     static List<Object> wordMaps(List<Word> words){List<Object> result=new ArrayList<>();for(Word w:words){Map<String,Object> m=new LinkedHashMap<>();m.put("word",w.text);m.put("start",w.start);m.put("end",w.end);m.put("kind",w.kind);result.add(m);}return result;}
+    static String trimState(Word word,double start,double end){return word.end<=start||word.start>=end?"outside":word.start<start||word.end>end?"partial":"inside";}
+    static List<Word> reconcile(String text,Sound sound,List<Word> old){
+        List<Word> fresh=estimate(text,sound);int n=old.size(),m=fresh.size();int[][] lengths=new int[n+1][m+1];boolean[] matched=new boolean[m];
+        for(int i=n-1;i>=0;i--)for(int j=m-1;j>=0;j--)lengths[i][j]=old.get(i).text.equals(fresh.get(j).text)?1+lengths[i+1][j+1]:Math.max(lengths[i+1][j],lengths[i][j+1]);
+        for(int i=0,j=0;i<n&&j<m;){if(old.get(i).text.equals(fresh.get(j).text)){Word a=old.get(i++),b=fresh.get(j);b.start=a.start;b.end=a.end;b.kind=a.kind;matched[j++]=true;}else if(lengths[i+1][j]>=lengths[i][j+1])i++;else j++;}
+        for(int j=0;j<m;){if(matched[j]){j++;continue;}int first=j;while(j<m&&!matched[j])j++;double a=first==0?0:fresh.get(first-1).end,b=j==m?sound.duration:fresh.get(j).start;b=Math.max(a,b);for(int k=first;k<j;k++){fresh.get(k).start=a+(b-a)*(k-first)/(j-first);fresh.get(k).end=a+(b-a)*(k-first+1)/(j-first);}}
+        return fresh;
+    }
     static void restoreTimes(List<Word> words,List<Object> saved,double duration,String forcedKind){
         if(saved.size()!=words.size())throw new IllegalArgumentException("Число слов не совпадает с текстом");
         double previous=-1;
@@ -108,7 +127,8 @@ final class ReviewData {
         Path dir=report.resolve("desktop_edits");Files.createDirectories(dir);
         boolean trimmed=frames[0]!=0||frames[1]!=sound.bytes.length/sound.format.getFrameSize();Path output=item.audio;
         List<Object> adjusted=new ArrayList<>();
-        for(Word word:words){if(word.start<trimStart-.001||word.end>trimEnd+.001)throw new IllegalArgumentException("Метка слова за обрезкой: "+word.text+". Пересчитайте позиции или исправьте текст.");Map<String,Object> entry=new LinkedHashMap<>();entry.put("word",word.text);entry.put("start",Math.max(0,word.start-trimStart));entry.put("end",Math.min(trimEnd-trimStart,word.end-trimStart));entry.put("kind",word.kind);adjusted.add(entry);}
+        List<Object> trimStates=new ArrayList<>();boolean needsTextReview=false;
+        for(Word word:words){String state=trimState(word,trimStart,trimEnd);trimStates.add(state);needsTextReview|=!state.equals("inside");if(state.equals("outside"))continue;Map<String,Object> entry=new LinkedHashMap<>();entry.put("word",word.text);entry.put("start",Math.max(0,word.start-trimStart));entry.put("end",Math.min(trimEnd-trimStart,word.end-trimStart));entry.put("kind",word.kind);entry.put("clipped",state.equals("partial"));adjusted.add(entry);}
         if(trimmed){
             Path wavDir=dir.resolve("wav");Files.createDirectories(wavDir);output=wavDir.resolve(item.uid+"_"+frames[0]+"-"+frames[1]+".wav");
             Path tmpWav=Files.createTempFile(wavDir,item.uid,".tmp");
@@ -118,6 +138,7 @@ final class ReviewData {
         }
         Map<String,Object> m=new LinkedHashMap<>();m.put("schema_version",2);m.put("uid",item.uid);m.put("original_text",item.original);m.put("corrected_text",text);m.put("status",status);m.put("audio",output.toString());m.put("original_audio",item.audio.toString());m.put("source",item.source);m.put("source_start",item.sourceStart);m.put("source_trimmed_start",item.sourceStart+trimStart);m.put("source_trimmed_end",item.sourceStart+trimEnd);m.put("trim_start",trimStart);m.put("trim_end",trimEnd);m.put("trim_start_frame",frames[0]);m.put("trim_end_frame_exclusive",frames[1]);m.put("trimmed_duration",trimEnd-trimStart);m.put("updated",Instant.now().toString());m.put("words_time_reference","original_wav");m.put("words",wordMaps(words));m.put("words_for_saved_audio",adjusted);
         Path txtDir=dir.resolve("txt");Files.createDirectories(txtDir);Path tmpText=Files.createTempFile(txtDir,item.uid,".tmp");Files.writeString(tmpText,text,StandardCharsets.UTF_8);replace(tmpText,txtDir.resolve(item.uid+".txt"));
+        m.put("schema_version",3);m.put("word_trim_states",trimStates);m.put("text_requires_review",needsTextReview);
         Path dest=dir.resolve(item.uid+".json");Path temp=Files.createTempFile(dir,item.uid,".tmp");
         Files.writeString(temp,Json.write(m),StandardCharsets.UTF_8);
         replace(temp,dest);

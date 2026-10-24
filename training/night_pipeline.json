@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "poll_seconds": 30,
   "minimum_free_gib": 5,
   "experimental_unreviewed": true,
