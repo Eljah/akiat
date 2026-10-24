@@ -15,7 +15,7 @@ final class ReviewData {
         Word(String text,int from,int to){this.text=text;this.from=from;this.to=to;}
     }
     static final class Item {
-        Map<String,Object> raw;Path json,audio;String uid,source,original,status="new";double sourceStart;int issues;
+        Map<String,Object> raw,recognition;Path json,audio;String uid,source,original,status="new";double sourceStart;int issues;
         public String toString(){return (status.equals("excluded")?"[ИСКЛЮЧЁН] ":status.equals("reviewed")?"[ПРОВЕРЕН] ":status.equals("draft")?"[ЧЕРНОВИК] ":"")+uid+"  ·  "+issues+" пометок";}
     }
     static final class Sound {
@@ -81,7 +81,7 @@ final class ReviewData {
         }return words;
     }
     static void applyFlags(List<Word> words,Item item,String text){
-        List<Object> tokens=Json.array(item.raw.get("tokens"));int n=tokens.size(),m=words.size();int[][] matches=new int[n+1][m+1];
+        List<Object> tokens=Json.array((item.recognition==null?item.raw:item.recognition).get("tokens"));int n=tokens.size(),m=words.size();int[][] matches=new int[n+1][m+1];
         for(Word w:words){w.flags="";w.edited=true;}
         for(int i=n-1;i>=0;i--)for(int j=m-1;j>=0;j--)matches[i][j]=words.get(j).text.equals(Json.object(tokens.get(i)).get("word"))?1+matches[i+1][j+1]:Math.max(matches[i+1][j],matches[i][j+1]);
         for(int i=0,j=0;i<n&&j<m;){Map<String,Object> t=Json.object(tokens.get(i));Word w=words.get(j);if(w.text.equals(t.get("word"))){w.edited=false;w.flags=String.join(", ",Json.array(t.get("flags")).stream().map(Object::toString).toArray(String[]::new));i++;j++;}else if(matches[i+1][j]>=matches[i][j+1])i++;else j++;}
@@ -104,11 +104,34 @@ final class ReviewData {
     static List<Object> wordMaps(List<Word> words){List<Object> result=new ArrayList<>();for(Word w:words){Map<String,Object> m=new LinkedHashMap<>();m.put("word",w.text);m.put("start",w.start);m.put("end",w.end);m.put("kind",w.kind);result.add(m);}return result;}
     static String trimState(Word word,double start,double end){return word.end<=start||word.start>=end?"outside":word.start<start||word.end>end?"partial":"inside";}
     static List<Word> reconcile(String text,Sound sound,List<Word> old){
-        List<Word> fresh=estimate(text,sound);int n=old.size(),m=fresh.size();int[][] lengths=new int[n+1][m+1];boolean[] matched=new boolean[m];
+        List<Word> fresh=estimate(text,sound);int n=old.size(),m=fresh.size();int[][] lengths=new int[n+1][m+1];boolean[] matched=new boolean[m];int[] source=new int[m];Arrays.fill(source,-1);
         for(int i=n-1;i>=0;i--)for(int j=m-1;j>=0;j--)lengths[i][j]=old.get(i).text.equals(fresh.get(j).text)?1+lengths[i+1][j+1]:Math.max(lengths[i+1][j],lengths[i][j+1]);
-        for(int i=0,j=0;i<n&&j<m;){if(old.get(i).text.equals(fresh.get(j).text)){Word a=old.get(i++),b=fresh.get(j);b.start=a.start;b.end=a.end;b.kind=a.kind;matched[j++]=true;}else if(lengths[i+1][j]>=lengths[i][j+1])i++;else j++;}
-        for(int j=0;j<m;){if(matched[j]){j++;continue;}int first=j;while(j<m&&!matched[j])j++;double a=first==0?0:fresh.get(first-1).end,b=j==m?sound.duration:fresh.get(j).start;b=Math.max(a,b);for(int k=first;k<j;k++){fresh.get(k).start=a+(b-a)*(k-first)/(j-first);fresh.get(k).end=a+(b-a)*(k-first+1)/(j-first);}}
+        for(int i=0,j=0;i<n&&j<m;){if(old.get(i).text.equals(fresh.get(j).text)){source[j]=i;Word a=old.get(i++),b=fresh.get(j);b.start=a.start;b.end=a.end;b.kind=a.kind;matched[j++]=true;}else if(lengths[i+1][j]>=lengths[i][j+1])i++;else j++;}
+        for(int j=0;j<m;){
+            if(matched[j]){j++;continue;}int first=j;while(j<m&&!matched[j])j++;
+            int oldFirst=first==0?0:source[first-1]+1,oldEnd=j==m?n:source[j];
+            double a,b;
+            if(oldFirst<oldEnd){a=old.get(oldFirst).start;b=old.get(oldEnd-1).end;}
+            else if(first>0&&(j==m||fresh.get(first-1).end>=fresh.get(j).start)){
+                // A surviving prefix plus new words shares its original interval.
+                first--;a=fresh.get(first).start;b=fresh.get(first).end;
+            }else{a=first==0?0:fresh.get(first-1).end;b=j==m?sound.duration:fresh.get(j).start;}
+            if(first>0)a=Math.max(a,fresh.get(first-1).start);
+            if(j<m)b=Math.min(b,fresh.get(j).start);b=Math.max(a,b);
+            for(int k=first;k<j;k++){fresh.get(k).start=a+(b-a)*(k-first)/(j-first);fresh.get(k).end=a+(b-a)*(k-first+1)/(j-first);fresh.get(k).kind="approximate";}
+        }
         return fresh;
+    }
+    static boolean restoreEditableTimes(List<Word> words,List<Object> saved,double duration){
+        List<Object> repaired=new ArrayList<>();double previous=0;boolean changed=false;
+        for(Object value:saved){Map<String,Object> entry=new LinkedHashMap<>(Json.object(value));
+            double a=((Number)entry.get("start")).doubleValue(),b=((Number)entry.get("end")).doubleValue();
+            if(!Double.isFinite(a)||!Double.isFinite(b))throw new IllegalArgumentException("Non-finite saved timing");
+            double start=Math.max(previous,Math.min(duration,Math.max(0,a))),end=Math.max(start,Math.min(duration,b));
+            if(start!=a||end!=b){changed=true;entry.put("start",start);entry.put("end",end);entry.put("kind","approximate");}
+            previous=start;repaired.add(entry);
+        }
+        restoreTimes(words,repaired,duration,null);return changed;
     }
     static void restoreTimes(List<Word> words,List<Object> saved,double duration,String forcedKind){
         if(saved.size()!=words.size())throw new IllegalArgumentException("Число слов не совпадает с текстом");
@@ -121,7 +144,21 @@ final class ReviewData {
     static void save(Path report,Item item,String text,List<Word> words,String status)throws IOException{
         try{Sound sound=readSound(item.audio);save(report,item,text,words,status,sound,0,sound.duration);}catch(IOException e){throw e;}catch(Exception e){throw new IOException(e);}
     }
+    static String effectiveText(String text,List<Word> words,double start,double end){
+        StringBuilder result=new StringBuilder();
+        for(int i=0;i<words.size();i++){
+            Word w=words.get(i);if(!trimState(w,start,end).equals("inside"))continue;
+            int to=i+1<words.size()?words.get(i+1).from:text.length();
+            if(result.length()==0&&i==0)result.append(text,0,w.from);
+            result.append(text,w.from,to);
+        }
+        return result.toString().trim();
+    }
     static void save(Path report,Item item,String text,List<Word> words,String status,Sound sound,double trimStart,double trimEnd)throws IOException{
+        save(report,item,text,words,status,sound,trimStart,trimEnd,effectiveText(text,words,trimStart,trimEnd),false,false);
+    }
+    static void save(Path report,Item item,String text,List<Word> words,String status,Sound sound,double trimStart,double trimEnd,String effective,boolean manual,boolean stale)throws IOException{
+        if(effective.trim().isEmpty()&&!status.equals("excluded"))throw new IllegalArgumentException("Эффективный текст пуст. Заполните его или исключите фрагмент.");
         if(text.trim().isEmpty()&&!status.equals("excluded"))throw new IllegalArgumentException("Пустой текст можно только исключить");
         long[] frames=trimFrames(sound,trimStart,trimEnd);double rate=sound.format.getFrameRate();trimStart=frames[0]/rate;trimEnd=frames[1]/rate;
         Path dir=report.resolve("desktop_edits");Files.createDirectories(dir);
@@ -137,8 +174,9 @@ final class ReviewData {
             replace(tmpWav,output);
         }
         Map<String,Object> m=new LinkedHashMap<>();m.put("schema_version",2);m.put("uid",item.uid);m.put("original_text",item.original);m.put("corrected_text",text);m.put("status",status);m.put("audio",output.toString());m.put("original_audio",item.audio.toString());m.put("source",item.source);m.put("source_start",item.sourceStart);m.put("source_trimmed_start",item.sourceStart+trimStart);m.put("source_trimmed_end",item.sourceStart+trimEnd);m.put("trim_start",trimStart);m.put("trim_end",trimEnd);m.put("trim_start_frame",frames[0]);m.put("trim_end_frame_exclusive",frames[1]);m.put("trimmed_duration",trimEnd-trimStart);m.put("updated",Instant.now().toString());m.put("words_time_reference","original_wav");m.put("words",wordMaps(words));m.put("words_for_saved_audio",adjusted);
-        Path txtDir=dir.resolve("txt");Files.createDirectories(txtDir);Path tmpText=Files.createTempFile(txtDir,item.uid,".tmp");Files.writeString(tmpText,text,StandardCharsets.UTF_8);replace(tmpText,txtDir.resolve(item.uid+".txt"));
+        Path txtDir=dir.resolve("txt");Files.createDirectories(txtDir);Path tmpText=Files.createTempFile(txtDir,item.uid,".tmp");Files.writeString(tmpText,effective,StandardCharsets.UTF_8);replace(tmpText,txtDir.resolve(item.uid+".txt"));
         m.put("schema_version",3);m.put("word_trim_states",trimStates);m.put("text_requires_review",needsTextReview);
+        m.put("schema_version",5);m.put("recognition",item.recognition);m.put("effective_text",effective);m.put("training_text",effective);m.put("effective_text_manual",manual);m.put("effective_text_needs_review",stale);m.put("training_eligible",status.equals("reviewed")&&!stale&&!effective.trim().isEmpty());
         Path dest=dir.resolve(item.uid+".json");Path temp=Files.createTempFile(dir,item.uid,".tmp");
         Files.writeString(temp,Json.write(m),StandardCharsets.UTF_8);
         replace(temp,dest);

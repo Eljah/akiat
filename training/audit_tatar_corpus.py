@@ -125,6 +125,38 @@ def grammar_flags(tokens, text):
             flags.append((current['index'], 'GRAM_NUM_PLURAL'))
     return flags
 
+def analyze_tokens(text, analyses, lemmas, ud_forms, ud_lemmas, forms):
+    tokens = []
+    for i, match in enumerate(TOKEN.finditer(text), 1):
+        word = match[0]
+        key = normalize(word)
+        aa = sorted(analyses.get(unicodedata.normalize('NFC', word), set()) | analyses.get(key, set()))
+        candidates = sorted({normalize(l) for a in aa for l in lemma_parts(a)})
+        # A clitic alone must not provide evidence for an unattested lexical base.
+        bases = sorted({normalize(a.split('<', 1)[0]) for a in aa})
+        evidence = {l: dict(lemma_list=lemmas.get(l, []), ud_lemma=ud_lemmas[l],
+                   written_corpus_surface=forms[l], ud_surface=ud_forms[l]) for l in candidates}
+        confirmed = any(lemmas.get(l) or ud_lemmas[l] or forms[l] or ud_forms[l] for l in bases)
+        flags = []
+        if not aa:
+            flags.append('MORPH_UNKNOWN')
+        if not forms[key] and not ud_forms[key]:
+            flags.append('FORM_UNATTESTED')
+        if aa and not confirmed:
+            flags.append('LEMMA_UNATTESTED')
+        if aa and all('Err/Orth' in a for a in aa):
+            flags.append('ORTHOGRAPHIC_VARIANT')
+        if re.search('[A-Za-z]', word) and re.search('[А-Яа-яӘәӨөҮүҖҗҢңҺһЁё]', word):
+            flags.append('SCRIPT_MIX')
+        token = dict(index=i, start=match.start(), end=match.end(), word=word, normalized=key,
+                     analyses=aa, lexical_bases=bases, lemma_evidence=evidence,
+                     corpus_form_count=forms[key], ud_form_count=ud_forms[key], flags=flags)
+        tokens.append(token)
+    for index, code in grammar_flags(tokens, text):
+        tokens[index-1]['flags'].append(code)
+    return tokens
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path)
@@ -147,34 +179,7 @@ def main():
     reports, token_rows, counts = [], [], Counter()
     for record in records:
         text = record['text']
-        tokens = []
-        for i, match in enumerate(TOKEN.finditer(text), 1):
-            word = match[0]
-            key = normalize(word)
-            aa = sorted(analyses.get(unicodedata.normalize('NFC', word), set()) | analyses.get(key, set()))
-            candidates = sorted({normalize(l) for a in aa for l in lemma_parts(a)})
-            # A clitic alone must not provide evidence for an unattested lexical base.
-            bases = sorted({normalize(a.split('<', 1)[0]) for a in aa})
-            evidence = {l: dict(lemma_list=lemmas.get(l, []), ud_lemma=ud_lemmas[l],
-                       written_corpus_surface=forms[l], ud_surface=ud_forms[l]) for l in candidates}
-            confirmed = any(lemmas.get(l) or ud_lemmas[l] or forms[l] or ud_forms[l] for l in bases)
-            flags = []
-            if not aa:
-                flags.append('MORPH_UNKNOWN')
-            if not forms[key] and not ud_forms[key]:
-                flags.append('FORM_UNATTESTED')
-            if aa and not confirmed:
-                flags.append('LEMMA_UNATTESTED')
-            if aa and all('Err/Orth' in a for a in aa):
-                flags.append('ORTHOGRAPHIC_VARIANT')
-            if re.search('[A-Za-z]', word) and re.search('[А-Яа-яӘәӨөҮүҖҗҢңҺһЁё]', word):
-                flags.append('SCRIPT_MIX')
-            token = dict(index=i, start=match.start(), end=match.end(), word=word, normalized=key,
-                         analyses=aa, lexical_bases=bases, lemma_evidence=evidence,
-                         corpus_form_count=forms[key], ud_form_count=ud_forms[key], flags=flags)
-            tokens.append(token)
-        for index, code in grammar_flags(tokens, text):
-            tokens[index-1]['flags'].append(code)
+        tokens = analyze_tokens(text, analyses, lemmas, ud_forms, ud_lemmas, forms)
         # A valid morphological form absent in this finite corpus is not by itself suspicious.
         for t in tokens:
             t['review'] = any(code != 'FORM_UNATTESTED' for code in t['flags'])
