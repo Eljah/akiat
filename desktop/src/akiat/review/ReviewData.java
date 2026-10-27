@@ -23,7 +23,9 @@ final class ReviewData {
     }
     static List<Item> readReport(Path report)throws IOException{
         List<Item> items=new ArrayList<>();
-        try(java.util.stream.Stream<Path> paths=Files.list(report.resolve("suspicious"))){
+        for(Path directory:Arrays.asList(report.resolve("suspicious"),report.resolve("desktop_edits/copies"))){
+            if(!Files.isDirectory(directory))continue;
+            try(java.util.stream.Stream<Path> paths=Files.list(directory)){
             for(Path p:(Iterable<Path>)paths.filter(x->x.toString().endsWith(".json"))::iterator){
                 Map<String,Object> r=Json.object(Json.parse(Files.readString(p,StandardCharsets.UTF_8)));
                 Item i=new Item();i.raw=r;i.json=p;i.uid=(String)r.get("uid");i.source=(String)r.get("source");i.original=(String)r.get("text");i.sourceStart=((Number)r.get("start")).doubleValue();i.issues=((Number)r.get("issue_count")).intValue();
@@ -34,8 +36,21 @@ final class ReviewData {
                 if(Files.isRegularFile(saved)){Map<String,Object> edit=Json.object(Json.parse(Files.readString(saved,StandardCharsets.UTF_8)));if(i.original.equals(edit.get("original_text")))i.status=String.valueOf(edit.getOrDefault("status","draft"));}
                 items.add(i);
             }
+            }
         }
-        items.sort(Comparator.comparing((Item i)->i.source).thenComparingDouble(i->i.sourceStart));return items;
+        items.sort(Comparator.comparing((Item i)->i.source).thenComparingDouble(i->i.sourceStart).thenComparing(i->i.uid));return items;
+    }
+    static Item duplicate(Path report,Item original,String text,List<Word> words,Sound sound,double start,double end,String effective,boolean manual,boolean stale)throws IOException{
+        Item copy=new Item();copy.uid=original.uid+"_copy_"+UUID.randomUUID().toString().replace("-","");
+        copy.raw=Json.object(Json.parse(Json.write(original.raw)));copy.raw.put("uid",copy.uid);copy.raw.put("duplicate_of",original.uid);
+        copy.raw.put("audio_relative",report.toAbsolutePath().relativize(original.audio.toAbsolutePath()).toString());
+        copy.recognition=original.recognition==null?null:Json.object(Json.parse(Json.write(original.recognition)));
+        copy.audio=original.audio;copy.original=original.original;copy.source=original.source;copy.sourceStart=original.sourceStart;copy.issues=original.issues;copy.status="draft";
+        Path directory=report.resolve("desktop_edits/copies");Files.createDirectories(directory);copy.json=directory.resolve(copy.uid+".json");
+        // Publish the list entry only after its independent editorial snapshot is ready.
+        save(report,copy,text,words,"draft",sound,start,end,effective,manual,stale);
+        Path temporary=Files.createTempFile(directory,"copy-",".tmp");Files.writeString(temporary,Json.write(copy.raw),StandardCharsets.UTF_8);replace(temporary,copy.json);
+        return copy;
     }
     static Sound readSound(Path path)throws Exception{
         Sound s=new Sound();

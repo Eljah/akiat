@@ -59,6 +59,7 @@ public final class ReviewApp extends JFrame {
         JPanel top=new JPanel(new FlowLayout(FlowLayout.LEFT));top.add(button("Открыть отчёт…",()->chooseReport()));
         JTextField search=new JTextField(26);top.add(search);top.add(button("Найти",()->filter(search.getText())));top.add(button("Все",()->{search.setText("");filter("");}));
         top.add(button("Папка исправлений",()->{try{Files.createDirectories(report.resolve("desktop_edits"));Desktop.getDesktop().open(report.resolve("desktop_edits").toFile());}catch(Exception e){error(e);}}));
+        top.add(button("Дублировать фрагмент",()->duplicateCurrent()));
         JPanel right=new JPanel(new BorderLayout(5,5));JPanel center=new JPanel();center.setLayout(new BoxLayout(center,BoxLayout.Y_AXIS));
         center.add(source);center.add(new JLabel("Исходная расшифровка (пометки относятся к ней):"));center.add(new JScrollPane(original));
         center.add(new JLabel("Исправленный текст — редактируйте здесь. Изменение текста пересчитывает приблизительные метки:"));center.add(new JScrollPane(editor));
@@ -99,6 +100,10 @@ public final class ReviewApp extends JFrame {
             private void popup(MouseEvent e){if(!e.isPopupTrigger())return;int index=clips.locationToIndex(e.getPoint());if(index<0||!clips.getCellBounds(index,index).contains(e.getPoint()))return;
                 ReviewData.Item item=listModel.get(index);JPopupMenu menu=new JPopupMenu();
                 JMenuItem copy=new JMenuItem("Копировать ID: "+item.uid);copy.addActionListener(x->{try{Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(item.uid),null);status.setText("ID скопирован: "+item.uid);}catch(Exception failure){error(failure);}});menu.add(copy);
+                JMenuItem duplicate=new JMenuItem("Дублировать фрагмент");duplicate.addActionListener(x->{
+                    if(item!=current){clips.setSelectedValue(item,true);if(current!=item)return;
+                        javax.swing.Timer waitForClip=new javax.swing.Timer(100,null);waitForClip.addActionListener(t->{if(current!=item||!loading){waitForClip.stop();if(current==item&&sound!=null)duplicateCurrent();}});waitForClip.start();return;
+                    }duplicateCurrent();});menu.add(duplicate);
                 JMenuItem recognize=new JMenuItem("Перераспознать оставленный участок…");recognize.addActionListener(x->{
                     if(item!=current){clips.setSelectedValue(item,true);if(current!=item)return;
                         javax.swing.Timer waitForClip=new javax.swing.Timer(100,null);waitForClip.addActionListener(t->{if(current!=item||!loading){waitForClip.stop();if(current==item&&sound!=null)retranscribe();}});waitForClip.start();return;
@@ -123,6 +128,17 @@ public final class ReviewApp extends JFrame {
         tick.start();if(initial!=null)openReport(initial);
     }
     private JButton button(String text,Runnable action){JButton b=new JButton(text);b.addActionListener(e->action.run());return b;}
+    private void duplicateCurrent(){
+        if(current==null||sound==null||loading){status.setText("Дождитесь загрузки фрагмента.");return;}
+        try{
+            if(table.isEditing()&&!table.getCellEditor().stopCellEditing())return;
+            if(dirty&&!save("draft"))return;
+            ReviewData.Item parent=current;
+            ReviewData.Item copy=ReviewData.duplicate(report,parent,editor.getText(),words,sound,trimStart,trimEnd,effective.getText(),effectiveManual,effectiveStale);
+            items.add(items.indexOf(parent)+1,copy);int index=listModel.indexOf(parent);listModel.add(index+1,copy);clips.setSelectedValue(copy,true);clips.ensureIndexIsVisible(index+1);
+            setTitle("Akiat v11 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" фрагментов");
+        }catch(Exception failure){error(failure);}
+    }
     private void retranscribe(){
         if(current==null||sound==null||loading){status.setText("Дождитесь загрузки WAV.");return;}
         try{
@@ -165,7 +181,7 @@ public final class ReviewApp extends JFrame {
         dirty=true;reviewStatus="draft";status.setText("Новая расшифровка применена. Красным — замечания морфологии/корпуса, не доказательство бессмысленности. Проверьте и сохраните.");
     }
     private void chooseReport(){if(!confirmLeave())return;JFileChooser c=new JFileChooser(report==null?".":report.toString());c.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);if(c.showOpenDialog(this)==JFileChooser.APPROVE_OPTION)try{openReport(c.getSelectedFile().toPath());}catch(Exception e){error(e);}}
-    private void openReport(Path path)throws Exception{List<ReviewData.Item> loaded=ReviewData.readReport(path);closeAudio();report=path.toAbsolutePath();items=loaded;current=null;dirty=false;filter("");setTitle("Akiat v10 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" подозрительных фрагментов");}
+    private void openReport(Path path)throws Exception{List<ReviewData.Item> loaded=ReviewData.readReport(path);closeAudio();report=path.toAbsolutePath();items=loaded;current=null;dirty=false;filter("");setTitle("Akiat v11 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" подозрительных фрагментов");}
     private void filter(String text){if(!confirmLeave())return;selecting=true;listModel.clear();String q=text.toLowerCase(Locale.ROOT);for(ReviewData.Item i:items)if((i.uid+" "+i.source+" "+i.original).toLowerCase(Locale.ROOT).contains(q))listModel.addElement(i);selecting=false;if(!listModel.isEmpty())clips.setSelectedIndex(0);}
     private void closeAudio(){if(audio!=null){audio.stop();audio.close();audio=null;}stopAt=Double.POSITIVE_INFINITY;}
     private void openAudio()throws Exception{byte[] data=ReviewData.playbackBytes(sound,playbackSpeed);Clip next=AudioSystem.getClip();try{next.open(sound.format,data,0,data.length);audio=next;}catch(Exception e){next.close();throw e;}}

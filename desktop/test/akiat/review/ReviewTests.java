@@ -24,7 +24,7 @@ public class ReviewTests {
         check(recognized.get(0).flags.equals("MORPH_UNKNOWN")&&!recognized.get(0).edited,"new ASR baseline uses fresh morphology marks");
         flagsItem.recognition=null;
         changed=ReviewData.estimate("Wrong B",sound);ReviewData.applyFlags(changed,flagsItem,"Wrong B");check(changed.get(0).flags.equals("UNKNOWN"),"flags survive deletion before word");
-        Path report=Paths.get(args[0]);List<ReviewData.Item> items=ReviewData.readReport(report);check(items.size()==609,"real report count");ReviewData.Item item=items.get(0);String original=Files.readString(item.json);
+        Path report=Paths.get(args[0]);List<ReviewData.Item> items=ReviewData.readReport(report);check(items.size()>=609,"real report includes original clips and optional copies");ReviewData.Item item=items.get(0);String original=Files.readString(item.json);
         ReviewData.Sound wav=ReviewData.readSound(item.audio);check(wav.duration>0&&wav.bytes.length>0,"WAV read");
         byte[] slow=ReviewData.playbackBytes(wav,.5);check(slow.length==wav.bytes.length*2,"half speed doubles duration");
         int frameSize=wav.format.getFrameSize();for(int i=0;i<wav.bytes.length/frameSize;i+=101)for(int b=0;b<frameSize;b++)check(slow[i*2*frameSize+b]==wav.bytes[i*frameSize+b],"half speed retains original samples at exact positions");
@@ -97,6 +97,23 @@ public class ReviewTests {
         }
         System.out.println("PASS: split words, insertion beside overlapping estimates, reopen "+reopened+" actual saved edits");
         check(Files.readString(item.json).equals(original),"original unchanged");
+        Path copyReport=Files.createTempDirectory(test,"duplicate-test-");Files.createDirectories(copyReport.resolve("suspicious"));
+        Map<String,Object> base=new LinkedHashMap<>(item.raw);base.put("audio_relative",item.audio.toAbsolutePath().toString());
+        Files.writeString(copyReport.resolve("suspicious").resolve(item.uid+".json"),Json.write(base));
+        ReviewData.save(copyReport,item,"A B C",anchored,"reviewed",wav,0,5,"A B C",false,false);
+        Path parentSave=copyReport.resolve("desktop_edits").resolve(item.uid+".json");String parentBefore=Files.readString(parentSave);
+        ReviewData.Item copy=ReviewData.duplicate(copyReport,item,"A B C",anchored,wav,0,5,"Final manual text",true,false);
+        check(!copy.uid.equals(item.uid)&&copy.status.equals("draft"),"copy has unique ID and unreviewed status");
+        List<ReviewData.Item> copiedItems=ReviewData.readReport(copyReport);check(copiedItems.size()==2,"copy persists in report after reopening");
+        Map<String,Object> snapshot=Json.object(Json.parse(Files.readString(copyReport.resolve("desktop_edits").resolve(copy.uid+".json"))));
+        check(snapshot.get("effective_text").equals("Final manual text")&&Boolean.TRUE.equals(snapshot.get("effective_text_manual")),"copy preserves final manual edits");
+        check(Json.write(snapshot.get("words")).equals(Json.write(ReviewData.wordMaps(anchored))),"copy preserves word timestamps");
+        check(!Boolean.TRUE.equals(snapshot.get("training_eligible")),"new copy requires review before training");
+        ReviewData.save(copyReport,copy,"A B C",anchored,"draft",wav,1.5,3.5,"B",false,false);
+        check(Files.readString(parentSave).equals(parentBefore),"editing copy does not alter parent save");
+        ReviewData.Item secondCopy=ReviewData.duplicate(copyReport,item,"A B C",anchored,wav,0,5,"A B C",false,false);
+        check(!secondCopy.uid.equals(copy.uid)&&ReviewData.readReport(copyReport).size()==3,"repeated duplication has independent IDs");
+        System.out.println("PASS: duplicate snapshot, reload, distinct IDs, manual text, independent trims and parent preservation");
         System.out.println("PASS: JSON, word timings, 609 pairs, save/reload, exact PCM trimming, source offsets, adjusted timestamps, invalid cuts and reset");
     }
 }
