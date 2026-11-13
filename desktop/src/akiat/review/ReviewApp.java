@@ -34,6 +34,7 @@ public final class ReviewApp extends JFrame {
     private final Wave wave=new Wave();
     private ReviewData.Item current;
     private ReviewData.Sound sound;
+    private ReviewData.Sound processedSound;
     private List<ReviewData.Word> words=new ArrayList<>();
     private Clip audio;
     private double cursor,stopAt=Double.POSITIVE_INFINITY;
@@ -74,6 +75,7 @@ public final class ReviewApp extends JFrame {
         JPanel playback=new JPanel(new FlowLayout(FlowLayout.LEFT));playback.add(button("▶ / Пауза",()->toggle()));playback.add(button("−0,5 с",()->seek(cursor-.5)));playback.add(button("+0,5 с",()->seek(cursor+.5)));
         playback.add(button("Слово ±0,5 с",()->playWord()));playback.add(position);
         JComboBox<String> speeds=new JComboBox<>(new String[]{"0,5×","0,75×","1×"});speeds.setSelectedIndex(2);speeds.setToolTipText("Замедленное прослушивание понижает тон. Файл и временные метки не меняются.");speeds.addActionListener(e->changeSpeed(new double[]{.5,.75,1}[speeds.getSelectedIndex()]));playback.add(new JLabel("Скорость:"));playback.add(speeds);center.add(playback);
+        JPanel contextActions=new JPanel(new FlowLayout(FlowLayout.LEFT));contextActions.add(button("Контекст из MP3…",()->sourceContext()));contextActions.add(button("Эквалайзер / спектр…",()->manualEqualizer()));center.add(contextActions);
         JPanel trim=new JPanel(new GridLayout(0,1,0,3));trim.setBorder(BorderFactory.createTitledBorder("Обрезка краёв аудио"));
         JPanel limits=new JPanel(new FlowLayout(FlowLayout.LEFT));limits.add(new JLabel("Оставить от, с:"));limits.add(trimFrom);limits.add(new JLabel("до, с:"));limits.add(trimTo);
         limits.add(button("Применить границы",()->{try{trimFrom.commitEdit();trimTo.commitEdit();setTrim(((Number)trimFrom.getValue()).doubleValue(),((Number)trimTo.getValue()).doubleValue());}catch(Exception e){error(e);}}));trim.add(limits);
@@ -128,6 +130,30 @@ public final class ReviewApp extends JFrame {
         tick.start();if(initial!=null)openReport(initial);
     }
     private JButton button(String text,Runnable action){JButton b=new JButton(text);b.addActionListener(e->action.run());return b;}
+    private void manualEqualizer(){
+        if(current==null||sound==null||loading)return;
+        try{
+            trimFrom.commitEdit();trimTo.commitEdit();double from=((Number)trimFrom.getValue()).doubleValue(),to=((Number)trimTo.getValue()).doubleValue();ReviewData.trimFrames(sound,from,to);
+            if(audio!=null){cursor=audio.getMicrosecondPosition()/1e6*playbackSpeed;audio.stop();}
+            Path root=Paths.get("").toAbsolutePath();
+            new EqualizerDialog(this,report,items,current,sound,from,to).setVisible(true);
+            processedSound=null;closeAudio();processedSound=EqualizerData.appliedSound(report,current,sound);openAudio();seek(cursor);
+            status.setText(processedSound==null?"Эквалайзер не применён. Воспроизводится оригинал.":"Эквалайзер применён: плеер воспроизводит обработанный вариант. Текст и обрезка сохранены.");
+        }catch(Exception ex){error(ex);}
+    }
+    private void sourceContext(){
+        if(current==null||sound==null||loading)return;
+        try{
+            trimFrom.commitEdit();trimTo.commitEdit();
+            double from=((Number)trimFrom.getValue()).doubleValue(),to=((Number)trimTo.getValue()).doubleValue();
+            ReviewData.trimFrames(sound,from,to);
+            if(audio!=null&&audio.isRunning()){cursor=audio.getMicrosecondPosition()/1_000_000.0*playbackSpeed;audio.stop();}
+            Path root=Paths.get("").toAbsolutePath();while(root!=null&&!Files.isDirectory(root.resolve("desktop/src")))root=root.getParent();
+            if(root==null)throw new IllegalStateException("Запустите приложение через desktop/start.ps1");
+            java.util.List<SourceContext.Span> spans=SourceContext.readSpans(report,items,current,sound.duration,from,to,reviewStatus);
+            SourceContext context=new SourceContext(this,root,current,sound.duration,from,to,cursor);context.setSpans(spans);context.setVisible(true);
+        }catch(Exception e){error(e);}
+    }
     private void duplicateCurrent(){
         if(current==null||sound==null||loading){status.setText("Дождитесь загрузки фрагмента.");return;}
         try{
@@ -136,7 +162,7 @@ public final class ReviewApp extends JFrame {
             ReviewData.Item parent=current;
             ReviewData.Item copy=ReviewData.duplicate(report,parent,editor.getText(),words,sound,trimStart,trimEnd,effective.getText(),effectiveManual,effectiveStale);
             items.add(items.indexOf(parent)+1,copy);int index=listModel.indexOf(parent);listModel.add(index+1,copy);clips.setSelectedValue(copy,true);clips.ensureIndexIsVisible(index+1);
-            setTitle("Akiat v11 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" фрагментов");
+            setTitle("Akiat v17 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" фрагментов");
         }catch(Exception failure){error(failure);}
     }
     private void retranscribe(){
@@ -181,12 +207,13 @@ public final class ReviewApp extends JFrame {
         dirty=true;reviewStatus="draft";status.setText("Новая расшифровка применена. Красным — замечания морфологии/корпуса, не доказательство бессмысленности. Проверьте и сохраните.");
     }
     private void chooseReport(){if(!confirmLeave())return;JFileChooser c=new JFileChooser(report==null?".":report.toString());c.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);if(c.showOpenDialog(this)==JFileChooser.APPROVE_OPTION)try{openReport(c.getSelectedFile().toPath());}catch(Exception e){error(e);}}
-    private void openReport(Path path)throws Exception{List<ReviewData.Item> loaded=ReviewData.readReport(path);closeAudio();report=path.toAbsolutePath();items=loaded;current=null;dirty=false;filter("");setTitle("Akiat v11 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" подозрительных фрагментов");}
+    private void openReport(Path path)throws Exception{List<ReviewData.Item> loaded=ReviewData.readReport(path);closeAudio();report=path.toAbsolutePath();items=loaded;current=null;dirty=false;filter("");setTitle("Akiat v17 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" подозрительных фрагментов");}
     private void filter(String text){if(!confirmLeave())return;selecting=true;listModel.clear();String q=text.toLowerCase(Locale.ROOT);for(ReviewData.Item i:items)if((i.uid+" "+i.source+" "+i.original).toLowerCase(Locale.ROOT).contains(q))listModel.addElement(i);selecting=false;if(!listModel.isEmpty())clips.setSelectedIndex(0);}
     private void closeAudio(){if(audio!=null){audio.stop();audio.close();audio=null;}stopAt=Double.POSITIVE_INFINITY;}
-    private void openAudio()throws Exception{byte[] data=ReviewData.playbackBytes(sound,playbackSpeed);Clip next=AudioSystem.getClip();try{next.open(sound.format,data,0,data.length);audio=next;}catch(Exception e){next.close();throw e;}}
+    private void openAudio()throws Exception{ReviewData.Sound playback=processedSound==null?sound:processedSound;byte[] data=ReviewData.playbackBytes(playback,playbackSpeed);Clip next=AudioSystem.getClip();try{next.open(playback.format,data,0,data.length);audio=next;}catch(Exception e){next.close();throw e;}}
     private void changeSpeed(double speed){boolean playing=audio!=null&&audio.isRunning();if(playing)cursor=audio.getMicrosecondPosition()/1_000_000.0*playbackSpeed;double end=stopAt;closeAudio();playbackSpeed=speed;if(sound==null||loading)return;try{openAudio();seek(cursor);stopAt=end;if(playing&&cursor<Math.min(trimEnd,stopAt))audio.start();}catch(Exception e){error(e);}}
     private void load(ReviewData.Item item){
+        processedSound=null;
         editDelay.stop();closeAudio();loading=true;effective.setEnabled(false);effective.setText("");dirty=false;sound=null;words=new ArrayList<>();current=item;item.recognition=null;selected=-1;cursor=0;reviewStatus="draft";editor.setEnabled(false);original.setText(item.original);editor.setText(item.original);source.setText(item.source+"  ·  начало в исходнике: "+item.sourceStart+" с");tableModel.fireTableDataChanged();wave.repaint();status.setText("Загружаю WAV…");int version=++loadVersion;
         new SwingWorker<ReviewData.Sound,Void>(){
             protected ReviewData.Sound doInBackground()throws Exception{return ReviewData.readSound(item.audio);}
@@ -199,7 +226,7 @@ public final class ReviewApp extends JFrame {
                 effectiveManual=saved!=null&&Boolean.TRUE.equals(saved.get("effective_text_manual"));effectiveStale=saved!=null&&Boolean.TRUE.equals(saved.get("effective_text_needs_review"));
                 effective.setText(saved!=null&&effectiveManual&&saved.containsKey("effective_text")?(String)saved.get("effective_text"):ReviewData.effectiveText(editor.getText(),words,trimStart,trimEnd));
                 effectiveInfo.setText(effectiveStale?"Границы менялись — проверьте финальный текст":effectiveManual?"Ручная финальная редактура":"Автоматически: только целые слова внутри границ");effective.setEnabled(true);
-                try{openAudio();}catch(Exception e){warning=" Звук недоступен: "+e.getMessage();}
+                try{processedSound=EqualizerData.appliedSound(report,item,sound);openAudio();if(processedSound!=null)warning+=" Ручной эквалайзер применён: плеер играет обработанный вариант.";}catch(Exception e){warning=" Звук недоступен: "+e.getMessage();}
                 tableModel.fireTableDataChanged();status.setText("Статус: "+reviewStatus+". Двойной щелчок по слову — прослушать окрестность."+warning);highlight();wave.repaint();
             }catch(Exception e){error(e);}finally{loading=false;editor.setEnabled(sound!=null);dirty=false;}}
         }.execute();
