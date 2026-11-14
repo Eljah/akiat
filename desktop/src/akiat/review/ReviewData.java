@@ -57,7 +57,7 @@ final class ReviewData {
         try(AudioInputStream input=AudioSystem.getAudioInputStream(path.toFile())){
             AudioFormat f=input.getFormat();AudioFormat pcm=new AudioFormat(f.getSampleRate(),16,f.getChannels(),true,false);
             try(AudioInputStream decoded=AudioSystem.getAudioInputStream(pcm,input)){
-                s.format=pcm;s.bytes=decoded.readAllBytes();s.duration=s.bytes.length/(pcm.getFrameSize()*pcm.getFrameRate());
+                s.format=pcm;s.bytes=decoded.readAllBytes();s.duration=s.bytes.length/(pcm.getFrameSize()*(double)pcm.getFrameRate());
                 int window=Math.max(1,(int)(pcm.getSampleRate()*.025));int frames=s.bytes.length/pcm.getFrameSize();
                 s.peaks=new float[(frames+window-1)/window];
                 for(int frame=0;frame<frames;frame++){int offset=frame*pcm.getFrameSize();short n=(short)((s.bytes[offset]&255)|(s.bytes[offset+1]<<8));s.peaks[frame/window]=Math.max(s.peaks[frame/window],Math.abs(n/32768f));}
@@ -65,8 +65,12 @@ final class ReviewData {
         }return s;
     }
     static long[] trimFrames(Sound sound,double start,double end){
-        if(!Double.isFinite(start)||!Double.isFinite(end)||start<0||end>sound.duration+.00001||end-start<.05)
-            throw new IllegalArgumentException("Оставьте не менее 0,05 с внутри границ WAV");
+        if(!Double.isFinite(start)||!Double.isFinite(end))
+            throw new IllegalArgumentException("Укажите начало и конец аудио числами в секундах");
+        if(start<0||end>sound.duration+.00001)
+            throw new IllegalArgumentException(String.format(Locale.ROOT,"Границы %.6f–%.6f с выходят за WAV: допустимо от 0 до %.6f с",start,end,sound.duration));
+        if(end-start<.05)
+            throw new IllegalArgumentException(String.format(Locale.ROOT,"Оставьте не менее 0,05 секунды аудио. Сейчас выбрано %.6f с (от %.6f до %.6f с)",end-start,start,end));
         long frames=sound.bytes.length/sound.format.getFrameSize();
         long a=Math.round(start*sound.format.getFrameRate()),b=Math.min(frames,Math.round(end*sound.format.getFrameRate()));
         if(a<0||b<=a||b>frames)throw new IllegalArgumentException("Некорректные границы обрезки");

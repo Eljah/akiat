@@ -24,8 +24,8 @@ public final class ReviewApp extends JFrame {
     private final JLabel effectiveInfo=new JLabel(" ");
     private final JLabel source=new JLabel("Выберите отчёт"), status=new JLabel(" "), position=new JLabel("0.00 / 0.00 с");
     private final JSlider slider=new JSlider(0,10000,0);
-    private final JSpinner trimFrom=new JSpinner(new SpinnerNumberModel(0.0,0.0,3600.0,.05));
-    private final JSpinner trimTo=new JSpinner(new SpinnerNumberModel(0.0,0.0,3600.0,.05));
+    private final JSpinner trimFrom=timeSpinner();
+    private final JSpinner trimTo=timeSpinner();
     private final JLabel trimInfo=new JLabel(" ");
     private double trimStart,trimEnd;
     private double playbackSpeed=1;
@@ -44,6 +44,13 @@ public final class ReviewApp extends JFrame {
     private final javax.swing.Timer tick=new javax.swing.Timer(40,e->tick());
     private final javax.swing.Timer editDelay=new javax.swing.Timer(350,e->rebuild());
 
+    static JSpinner timeSpinner(){
+        JSpinner spinner=new JSpinner(new SpinnerNumberModel(0.0,0.0,3600.0,.05));
+        // Default NumberEditor rounds to milliseconds on commit/focus loss.
+        // Microsecond precision keeps rounding below trim tolerance and one PCM frame.
+        spinner.setEditor(new JSpinner.NumberEditor(spinner,"0.######"));
+        return spinner;
+    }
     ReviewApp(Path initial)throws Exception{
         super("Akiat — проверка и обрезка корпуса");setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         Rectangle screen=GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
@@ -75,7 +82,7 @@ public final class ReviewApp extends JFrame {
         JPanel playback=new JPanel(new FlowLayout(FlowLayout.LEFT));playback.add(button("▶ / Пауза",()->toggle()));playback.add(button("−0,5 с",()->seek(cursor-.5)));playback.add(button("+0,5 с",()->seek(cursor+.5)));
         playback.add(button("Слово ±0,5 с",()->playWord()));playback.add(position);
         JComboBox<String> speeds=new JComboBox<>(new String[]{"0,5×","0,75×","1×"});speeds.setSelectedIndex(2);speeds.setToolTipText("Замедленное прослушивание понижает тон. Файл и временные метки не меняются.");speeds.addActionListener(e->changeSpeed(new double[]{.5,.75,1}[speeds.getSelectedIndex()]));playback.add(new JLabel("Скорость:"));playback.add(speeds);center.add(playback);
-        JPanel contextActions=new JPanel(new FlowLayout(FlowLayout.LEFT));contextActions.add(button("Контекст из MP3…",()->sourceContext()));contextActions.add(button("Эквалайзер / спектр…",()->manualEqualizer()));center.add(contextActions);
+        JPanel contextActions=new JPanel(new FlowLayout(FlowLayout.LEFT));contextActions.add(button("Контекст из MP3…",()->sourceContext()));contextActions.add(button("Эквалайзер / профиль…",()->manualEqualizer()));center.add(contextActions);
         JPanel trim=new JPanel(new GridLayout(0,1,0,3));trim.setBorder(BorderFactory.createTitledBorder("Обрезка краёв аудио"));
         JPanel limits=new JPanel(new FlowLayout(FlowLayout.LEFT));limits.add(new JLabel("Оставить от, с:"));limits.add(trimFrom);limits.add(new JLabel("до, с:"));limits.add(trimTo);
         limits.add(button("Применить границы",()->{try{trimFrom.commitEdit();trimTo.commitEdit();setTrim(((Number)trimFrom.getValue()).doubleValue(),((Number)trimTo.getValue()).doubleValue());}catch(Exception e){error(e);}}));trim.add(limits);
@@ -162,7 +169,7 @@ public final class ReviewApp extends JFrame {
             ReviewData.Item parent=current;
             ReviewData.Item copy=ReviewData.duplicate(report,parent,editor.getText(),words,sound,trimStart,trimEnd,effective.getText(),effectiveManual,effectiveStale);
             items.add(items.indexOf(parent)+1,copy);int index=listModel.indexOf(parent);listModel.add(index+1,copy);clips.setSelectedValue(copy,true);clips.ensureIndexIsVisible(index+1);
-            setTitle("Akiat v17 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" фрагментов");
+            setTitle("Akiat v20 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" фрагментов");
         }catch(Exception failure){error(failure);}
     }
     private void retranscribe(){
@@ -207,7 +214,7 @@ public final class ReviewApp extends JFrame {
         dirty=true;reviewStatus="draft";status.setText("Новая расшифровка применена. Красным — замечания морфологии/корпуса, не доказательство бессмысленности. Проверьте и сохраните.");
     }
     private void chooseReport(){if(!confirmLeave())return;JFileChooser c=new JFileChooser(report==null?".":report.toString());c.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);if(c.showOpenDialog(this)==JFileChooser.APPROVE_OPTION)try{openReport(c.getSelectedFile().toPath());}catch(Exception e){error(e);}}
-    private void openReport(Path path)throws Exception{List<ReviewData.Item> loaded=ReviewData.readReport(path);closeAudio();report=path.toAbsolutePath();items=loaded;current=null;dirty=false;filter("");setTitle("Akiat v17 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" подозрительных фрагментов");}
+    private void openReport(Path path)throws Exception{List<ReviewData.Item> loaded=ReviewData.readReport(path);closeAudio();report=path.toAbsolutePath();items=loaded;current=null;dirty=false;filter("");setTitle("Akiat v20 · Обрезка и исключение — "+report.getFileName()+" · "+items.size()+" подозрительных фрагментов");}
     private void filter(String text){if(!confirmLeave())return;selecting=true;listModel.clear();String q=text.toLowerCase(Locale.ROOT);for(ReviewData.Item i:items)if((i.uid+" "+i.source+" "+i.original).toLowerCase(Locale.ROOT).contains(q))listModel.addElement(i);selecting=false;if(!listModel.isEmpty())clips.setSelectedIndex(0);}
     private void closeAudio(){if(audio!=null){audio.stop();audio.close();audio=null;}stopAt=Double.POSITIVE_INFINITY;}
     private void openAudio()throws Exception{ReviewData.Sound playback=processedSound==null?sound:processedSound;byte[] data=ReviewData.playbackBytes(playback,playbackSpeed);Clip next=AudioSystem.getClip();try{next.open(playback.format,data,0,data.length);audio=next;}catch(Exception e){next.close();throw e;}}

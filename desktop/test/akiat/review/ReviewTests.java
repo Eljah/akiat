@@ -26,11 +26,24 @@ public class ReviewTests {
         changed=ReviewData.estimate("Wrong B",sound);ReviewData.applyFlags(changed,flagsItem,"Wrong B");check(changed.get(0).flags.equals("UNKNOWN"),"flags survive deletion before word");
         Path report=Paths.get(args[0]);List<ReviewData.Item> items=ReviewData.readReport(report);check(items.size()>=609,"real report includes original clips and optional copies");ReviewData.Item item=items.get(0);String original=Files.readString(item.json);
         ReviewData.Sound wav=ReviewData.readSound(item.audio);check(wav.duration>0&&wav.bytes.length>0,"WAV read");
+        ReviewData.Item roundedItem=items.stream().filter(i->i.uid.equals("acdd51b547eaf8f9_00189")).findFirst().orElseThrow();
+        ReviewData.Sound roundedSound=ReviewData.readSound(roundedItem.audio);
+        javax.swing.SwingUtilities.invokeAndWait(()->{try{
+            javax.swing.JSpinner spinner=ReviewApp.timeSpinner();spinner.setValue(roundedSound.duration);spinner.commitEdit();
+            double end=((Number)spinner.getValue()).doubleValue();
+            long[] exact=ReviewData.trimFrames(roundedSound,0,end);
+            check(exact[1]==roundedSound.bytes.length/roundedSound.format.getFrameSize(),"00189 end field commit preserves final PCM frame");
+            spinner.setValue(1.234567);spinner.commitEdit();
+            check(ReviewData.trimFrames(roundedSound,((Number)spinner.getValue()).doubleValue(),end)[0]==Math.round(1.234567*roundedSound.format.getFrameRate()),"trim start commit preserves frame");
+        }catch(Exception e){throw new RuntimeException(e);}});
         byte[] slow=ReviewData.playbackBytes(wav,.5);check(slow.length==wav.bytes.length*2,"half speed doubles duration");
         int frameSize=wav.format.getFrameSize();for(int i=0;i<wav.bytes.length/frameSize;i+=101)for(int b=0;b<frameSize;b++)check(slow[i*2*frameSize+b]==wav.bytes[i*frameSize+b],"half speed retains original samples at exact positions");
         check(ReviewData.playbackBytes(wav,1)==wav.bytes,"normal speed uses unchanged original");
         List<ReviewData.Word> words=ReviewData.estimate(item.original,wav);ReviewData.applyFlags(words,item,item.original);check(!words.isEmpty(),"words from real clip");
         Path test=Paths.get(args[1]);Files.createDirectories(test);ReviewData.save(test,item,item.original,words,"reviewed");
+        ReviewData.save(test,roundedItem,roundedItem.original,ReviewData.estimate(roundedItem.original,roundedSound),"reviewed",roundedSound,0,roundedSound.duration);
+        Map<String,Object> roundedSaved=Json.object(Json.parse(Files.readString(test.resolve("desktop_edits").resolve(roundedItem.uid+".json"))));
+        check(roundedSaved.get("status").equals("reviewed")&&roundedSaved.get("audio").equals(roundedItem.audio.toString()),"00189 can be reviewed without cropping original");
         Map<String,Object> saved=Json.object(Json.parse(Files.readString(test.resolve("desktop_edits").resolve(item.uid+".json"),StandardCharsets.UTF_8)));
         check(saved.get("status").equals("reviewed")&&saved.get("corrected_text").equals(item.original),"save correction");
         ReviewData.restoreTimes(words,Json.array(saved.get("words")),wav.duration,null);

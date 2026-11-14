@@ -20,6 +20,13 @@ class ManualEqualizerTests(unittest.TestCase):
         with wave.open(str(folder/'java-after.wav')) as wav:java=wav.readframes(wav.getnframes())
         self.assertLessEqual(np.max(np.abs(np.frombuffer(filtered,'<i2').astype(int)-np.frombuffer(java,'<i2'))),1)
         self.assertEqual(filter_pcm(pcm,rate,1,dict(recipe,gain_db=0)),pcm)
+        for suffix in ('','-smooth'):
+            profile=json.loads((folder/('profile'+suffix+'.json')).read_text())
+            with wave.open(str(folder/('java-profile'+suffix+'.wav'))) as w:expected=w.readframes(w.getnframes())
+            actual=filter_pcm(pcm,rate,1,profile)
+            self.assertLessEqual(np.max(np.abs(np.frombuffer(actual,'<i2').astype(int)-np.frombuffer(expected,'<i2'))),1)
+            self.assertEqual(filter_pcm(pcm,rate,1,dict(profile,gain_db=0)),pcm)
+            with self.assertRaisesRegex(ValueError,'sample rate'):filter_pcm(pcm,44100,1,profile)
         with tempfile.TemporaryDirectory(dir=ROOT/'outputs') as directory:
             root=Path(directory);(root/'equalizer').mkdir();original=folder/'before.wav'
             stored=dict(recipe,enabled=True,uid='test',source_sha256=hashlib.sha256(original.read_bytes()).hexdigest())
